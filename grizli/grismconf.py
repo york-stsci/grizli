@@ -464,7 +464,7 @@ def get_config_filename(instrume='WFC3', filter='F140W',
         
     Parameters
     ----------
-    instrume : {'ACS', 'WFC3', 'NIRISS', 'NIRCam', 'WFIRST'}
+    instrume : {'ACS', 'WFC3', 'NIRISS', 'NIRCam', 'WFI'}
         Instrument used
         
     filter : str
@@ -480,7 +480,7 @@ def get_config_filename(instrume='WFC3', filter='F140W',
             WFC3 : G102, G141
             NIRISS : GR150R, GR150C
             NIRCam : F322W2, F356W, F430M, F444W, F460M
-            WFIRST : (basic assumptions about the WFI grism)
+            WFI : (basic assumptions about the WFI grism)
             
     chip : int
         For ACS/WFC and UVIS, specifies the chip to use.  Note that this 
@@ -540,8 +540,8 @@ def get_config_filename(instrume='WFC3', filter='F140W',
         conf_file = os.path.join(GRIZLI_PATH,
                                  'CONF/NIRCam.B.{0}.{1}.conf'.format(filter, grism))
             
-    if instrume == 'WFIRST':
-        conf_file = os.path.join(GRIZLI_PATH, 'CONF/WFIRST.conf')
+    if instrume == 'WFI':
+        conf_file = os.path.join(GRIZLI_PATH, 'CONF/Roman.conf')
 
     if instrume == 'SYN':
         conf_file = os.path.join(GRIZLI_PATH, 'CONF/syn.conf')

@@ -3352,7 +3352,7 @@ class MultiBeam(GroupFitter):
                 #
                 if 'G280' in self.Ngrism:
                     fwhm = 1500
-                # WFIRST
+                # Roman
                 if 'GRISM' in self.Ngrism:
                     fwhm = 350
                 

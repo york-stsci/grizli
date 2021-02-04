@@ -158,6 +158,10 @@ def img_with_wcs(input):
     # HDUList -> jwst.datamodels.ImageModel
     img = util.open(input)
     
+#     print("{}".format(img))
+#     for item in img.meta:
+#         print("{}: {} ({})".format(item, img.meta[item], type(img.meta[item])))
+    
     # AssignWcs to pupulate img.meta.wcsinfo
     step = AssignWcsStep()
     with_wcs = step.process(img)

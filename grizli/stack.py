@@ -46,7 +46,7 @@ def make_templates(grism='G141', return_lists=False, fsps_templates=False,
         fwhm = 1400
     elif grism == 'G280':  # WFC3/UVIS
         fwhm = 1500
-    elif grism == 'GRISM': # WFIRST
+    elif grism == 'GRISM': # Roman
         fwhm = 350
     else:
         fwhm = 700 # G102

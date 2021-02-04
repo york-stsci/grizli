@@ -4,6 +4,9 @@ Model grism spectra in individual FLTs
 import os
 from collections import OrderedDict
 import copy
+from copy import deepcopy
+import datetime
+from pathlib import Path
 
 import numpy as np
 import scipy.ndimage as nd
@@ -495,7 +498,7 @@ class GrismDisperser(object):
         else:
             self.id = id
             total_flux = self.direct[self.seg == id].sum()
-            
+
         ### Template (1D) spectrum interpolated onto the wavelength grid
         if in_place:
             self.spectrum_1d = spectrum_1d
@@ -504,7 +507,7 @@ class GrismDisperser(object):
             scale = self.scale
         else:
             self.scale = scale
-            
+        
         if spectrum_1d is not None:
             xspec, yspec = spectrum_1d
             scale_spec = self.sensitivity_beam*0.
@@ -1478,8 +1481,31 @@ class ImageData(object):
             
         self.wcs = None
         
+        exptypes = {"NIRISS": "NIS_IMAGE", "NIRCAM": "NIC_IMAGE"}
+        
         if instrument in ['NIRISS','NIRCAM']:
             if process_jwst_header:
+                if hdulist is not None:
+                    primary_hdr = hdulist[0].header
+                    sci_hdr = hdulist['SCI'].header
+                    if 'DATAMODL' not in primary_hdr:
+                        hdulist[0].header['DATAMODL'] = 'ImageModel'
+                    if 'EXP_TYPE' not in primary_hdr:
+                        hdulist[0].header['EXP_TYPE'] = exptypes[instrument]
+                    if 'DATE-OBS' not in primary_hdr:
+                        now = datetime.datetime.now()
+                        date = now.strftime("%Y-%m-%d")
+                        time = now.strftime("%H:%M:%S")
+                        hdulist[0].header['DATE-OBS'] = date
+                        hdulist[0].header['TIME-OBS'] = time
+                    if "RA_REF" not in sci_hdr:
+                        ra = hdulist[0].header["CRVAL1"]
+                        hdulist['SCI'].header['RA_REF'] = ra
+                    if "DEC_REF" not in sci_hdr:
+                        dec = hdulist[0].header["CRVAL2"]
+                        hdulist['SCI'].header['DEC_REF'] = dec
+                    if "ROLL_REF" not in sci_hdr:
+                        hdulist['SCI'].header['ROLL_REF'] = 0.
                 self.update_jwst_wcsheader(hdulist)
             
         if self.header is not None:
@@ -1512,12 +1538,12 @@ class ImageData(object):
         
             >>> okbits_instrument = {'WFC3': 32+64+512, # blob OK
                                      'NIRISS': 0,
-                                     'WFIRST': 0,}
+                                     'WFI': 0,}
         """
                              
         okbits_instrument = {'WFC3': 32+64+512, # blob OK
                              'NIRISS': 0,
-                             'WFIRST': 0,}
+                             'WFI': 0,}
         
         if self.instrument not in okbits_instrument:
             okbits = 1
@@ -1636,6 +1662,8 @@ class ImageData(object):
                 wcs._naxis[i] += 2*pad
                 
             wcs.naxis1, wcs.naxis2 = wcs._naxis
+            wcs.__setattr__('_naxis1', wcs.naxis1)
+            wcs.__setattr__('_naxis2', wcs.naxis2)
         else:
             wcs.naxis1 = wcs._naxis1
             wcs.naxis2 = wcs._naxis2
@@ -1688,9 +1716,84 @@ class ImageData(object):
         self.wcs = self.add_padding_to_wcs(self.wcs, pad=pad)
         if not hasattr(self.wcs, 'pixel_shape'):
             self.wcs.pixel_shape = self.wcs._naxis1, self.wcs._naxis2
+    
+    @staticmethod
+    def remove_padding_from_wcs(wcs_in, pad=200):
+        """Remove a pad from the appropriate WCS keywords"""
+        wcs = wcs_in.deepcopy()
+        
+        is_new = True
+        for attr in ['naxis1', '_naxis1', 'naxis2', '_naxis2']:
+            if hasattr(wcs, attr):
+                is_new = False
+                value = wcs.__getattribute__(attr) 
+                if value is not None:
+                    wcs.__setattr__(attr, value-2*pad)
+        
+        # Handle changing astropy.wcs.WCS attributes
+        if is_new:
+            for i in range(len(wcs._naxis)):
+                wcs._naxis[i] -= 2*pad
+                
+            wcs.naxis1, wcs.naxis2 = wcs._naxis
+            wcs.__setattr__('_naxis1', wcs.naxis1)
+            wcs.__setattr__('_naxis2', wcs.naxis2)
+        else:
+            wcs.naxis1 = wcs._naxis1
+            wcs.naxis2 = wcs._naxis2
+        
+        wcs.wcs.crpix[0] -= pad
+        wcs.wcs.crpix[1] -= pad
+        
+        # Pad CRPIX for SIP
+        for wcs_ext in [wcs.sip]:
+            if wcs_ext is not None:
+                wcs_ext.crpix[0] -= pad
+                wcs_ext.crpix[1] -= pad           
+        
+        # Pad CRVAL for Lookup Table, if necessary (e.g., ACS)        
+        for wcs_ext in [wcs.cpdis1, wcs.cpdis2, wcs.det2im1, wcs.det2im2]:
+            if wcs_ext is not None:
+                wcs_ext.crval[0] -= pad
+                wcs_ext.crval[1] -= pad
+        
+        return wcs
+        
+    def remove_padding(self):
+        """Remove any added padding and update WCS keywords"""
+        
+        pad = self.pad
+        
+        # Update data array
+        new_sh = self.sh - 2*pad
+        for key in ['SCI', 'ERR', 'DQ', 'REF']:
+            if key not in self.data:
+                continue
+            else:
+                if self.data[key] is None:
+                    continue
+            
+            data = self.data[key]
+            new_data = np.zeros(new_sh, dtype=data.dtype)
+            new_data[:,:] += data[pad:-pad, pad:-pad]
+            self.data[key] = new_data
+        
+        self.sh = new_sh
+        self.pad = 0
+        
+        self.header['NAXIS1'] -= 2*pad
+        self.header['NAXIS2'] -= 2*pad
+        
+        self.header['CRPIX1'] -= pad
+        self.header['CRPIX2'] -= pad
+        
+        self.wcs = self.remove_padding_from_wcs(self.wcs, pad=pad)
+        if not hasattr(self.wcs, 'pixel_shape'):
+            self.wcs.pixel_shape = self.wcs._naxis1, self.wcs._naxis2
         
                  
-    def shrink_large_hdu(self, hdu=None, extra=100, verbose=False):
+    def shrink_large_hdu(self, hdu=None, extra=100, verbose=False,
+                         verbose_prepend=''):
         """Shrink large image mosaic to speed up blotting
         
         Parameters
@@ -1734,11 +1837,13 @@ class ImageData(object):
         if ((xref.min() < 0) | (yref.min() < 0) | 
             (xref.max() > ref_naxis[0]) | (yref.max() > ref_naxis[1])):
             if verbose:
-                print('Image cutout: x={0}, y={1} [Out of range]'.format(slx, sly))
+                msg = "{}Image cutout: x={}, y={} [Out of range]"
+                print(msg.format(verbose_prepend, slx, sly))
             return hdu
         else:
             if verbose:
-                print('Image cutout: x={0}, y={1}'.format(slx, sly))
+                msg = "{}Image cutout: x={}, y={}"
+                print(msg.format(verbose_prepend, slx, sly))
         
         ### Sliced subimage
         slice_wcs = ref_wcs.slice((sly, slx))
@@ -2009,14 +2114,16 @@ class ImageData(object):
         else:
             slice_header = pyfits.Header()
             
-        ### Generate new object        
+        ### Generate new object
+        process_jwst_header = slice_wcs is None
         slice_obj = ImageData(sci=self.data['SCI'][sly, slx]/self.photflam, 
                               err=self.data['ERR'][sly, slx]/self.photflam, 
                               dq=self.data['DQ'][sly, slx]*1, 
                               header=slice_header, wcs=slice_wcs,
                               photflam=self.photflam, photplam=self.photplam,
                               origin=slice_origin, instrument=self.instrument,
-                              filter=self.filter, pupil=self.pupil)
+                              filter=self.filter, pupil=self.pupil,
+                              process_jwst_header=process_jwst_header)
         
         slice_obj.ref_photflam = self.ref_photflam
         slice_obj.ref_photplam = self.ref_photplam
@@ -2163,7 +2270,7 @@ class GrismFLT(object):
     def __init__(self, grism_file='', sci_extn=1, direct_file='',
                  pad=200, ref_file=None, ref_ext=0, seg_file=None,
                  shrink_segimage=True, force_grism='G141', verbose=True,
-                 process_jwst_header=True):
+                 process_jwst_header=True, verbose_prepend=''):
         """Read FLT files and, optionally, reference/segmentation images.
         
         Parameters
@@ -2299,7 +2406,7 @@ class GrismFLT(object):
             self.pad = self.grism.pad
         else:
             self.pad = pad
-            
+        
         if (self.grism is None) & (self.direct is not None):
             self.grism = ImageData(hdulist=direct_im, sci_extn=sci_extn)
             self.grism_file = self.direct_file
@@ -2355,11 +2462,11 @@ class GrismFLT(object):
         ### Blot reference image
         self.process_ref_file(ref_file, ref_ext=ref_ext, 
                               shrink_segimage=shrink_segimage,
-                              verbose=verbose)
+                              verbose=verbose, verbose_prepend=verbose_prepend)
         
         ### Blot segmentation image
         self.process_seg_file(seg_file, shrink_segimage=shrink_segimage,
-                              verbose=verbose)
+                              verbose=verbose, verbose_prepend=verbose_prepend)
         
         ## End things
         self.get_dispersion_PA()
@@ -2371,7 +2478,7 @@ class GrismFLT(object):
         self.has_edge_mask = False
         
     def process_ref_file(self, ref_file, ref_ext=0, shrink_segimage=True,
-                         verbose=True):
+                         verbose=True, verbose_prepend=''):
         """Read and blot a reference image
         
         Parameters
@@ -2404,7 +2511,10 @@ class GrismFLT(object):
             
         if (isinstance(ref_file, pyfits.ImageHDU) | 
             isinstance(ref_file, pyfits.PrimaryHDU)):
-            self.ref_file = ref_file.fileinfo()['file'].name
+            if ref_file.fileinfo() is None:
+                self.ref_file = "Ephemeral HDU"
+            else:
+                self.ref_file = ref_file.fileinfo()['file'].name
             ref_str = ''
             ref_hdu = ref_file
             refh = ref_hdu.header
@@ -2416,10 +2526,12 @@ class GrismFLT(object):
         
         if shrink_segimage:
             ref_hdu = self.direct.shrink_large_hdu(ref_hdu, extra=self.pad,
-                                                   verbose=True)
+                                                   verbose=True, 
+                                                   verbose_prepend=verbose_prepend)
             
         if verbose:
-            print('{0} / blot reference {1}'.format(self.direct_file, ref_str))
+            msg = "{}{} / blot reference {}"
+            print(msg.format(verbose_prepend, self.direct_file, ref_str))
                                               
         blotted_ref = self.grism.blot_from_hdu(hdu=ref_hdu,
                                       segmentation=False, interp='poly5')
@@ -2496,7 +2608,8 @@ class GrismFLT(object):
         #refh['FILTER'].upper()
         return True
         
-    def process_seg_file(self, seg_file, shrink_segimage=True, verbose=True):
+    def process_seg_file(self, seg_file, shrink_segimage=True, verbose=True,
+                         verbose_prepend=''):
         """Read and blot a rectified segmentation image
         
         Parameters
@@ -2533,13 +2646,15 @@ class GrismFLT(object):
             if shrink_segimage:
                 seg_hdu = self.direct.shrink_large_hdu(seg_hdu, 
                                                        extra=self.pad,
-                                                       verbose=True)
+                                                       verbose=verbose,
+                                                       verbose_prepend=verbose_prepend)
                 
                 ### Make sure image big enough
                 seg_hdu = self.direct.expand_hdu(seg_hdu)
             
             if verbose:
-                print('{0} / blot segmentation {1}'.format(self.direct_file, seg_str))
+                msg = "{}{} / blot segmentation {}"
+                print(msg.format(verbose_prepend, self.direct_file, seg_str))
             
             blotted_seg = self.grism.blot_from_hdu(hdu=seg_hdu, 
                                           segmentation=True, grow=3,
@@ -2594,8 +2709,8 @@ class GrismFLT(object):
                       spectrum_1d=None, is_cgs=False,
                       compute_size=False, max_size=None, store=True, 
                       in_place=True, add=True, get_beams=None, 
-                      psf_params=None, 
-                      verbose=True):
+                      psf_params=None, ref_img=None, seg_img=None,
+                      verbose=True, verbose_prepend=''):
         """Compute dispersed spectrum for a given object id
         
         Parameters
@@ -2663,7 +2778,7 @@ class GrismFLT(object):
             
             If `in_place` is False, return a full array including the model 
             for the single object.
-        """               
+        """
         from .utils_c import disperse
         
         # debug
@@ -2685,10 +2800,14 @@ class GrismFLT(object):
             object_in_model = False
             beams = None
         
-        if self.direct.data['REF'] is None:
-            ext = 'SCI'
-        else:
-            ext = 'REF'
+        if ref_img is None:
+            if self.direct.data['REF'] is None:
+                ref_img = self.direct.data['SCI']
+            else:
+                ref_img = self.direct.data['REF']
+        
+        if seg_img is None:
+            seg_img = self.seg
 
         # set up the beams to extract
         if get_beams is None:
@@ -2707,7 +2826,8 @@ class GrismFLT(object):
                 ix = self.catalog['id'] == id
                 if ix.sum() == 0:
                     if verbose:
-                        print('ID {0:d} not found in segmentation image'.format(id))
+                        msg = "{}ID {:d} not found in internal catalogue"
+                        print(msg.format(verbose_prepend, id))
                     return False
                 
                 xcat = self.catalog['x_flt'][ix][0]-1
@@ -2722,21 +2842,34 @@ class GrismFLT(object):
                 
             if (compute_size) | (x is None) | (y is None) | (size is None):
                 ### Get the array indices of the segmentation region
-                out = disperse.compute_segmentation_limits(self.seg, id,
-                                         self.direct.data[ext],
-                                         self.direct.sh)
+                out = disperse.compute_segmentation_limits(seg_img, id,
+                                         ref_img, self.direct.sh)
                 
                 ymin, ymax, y, xmin, xmax, x, area, segm_flux = out
+#                 if verbose:
+#                     msg = "{}ID {}: Found y = ({},{},{}), x = ({},{},{}), "
+#                     msg += "area = {}, flux = {}."
+#                     print(msg.format(verbose_prepend, id, ymin, y, ymax, xmin,
+#                                      x, xmax, area, segm_flux))
                 if (area == 0) | ~np.isfinite(x) | ~np.isfinite(y):
                     if verbose:
-                        print('ID {0:d} not found in segmentation image'.format(id))
+                        msg = "{}ID {:d} has zero area or could not be found "
+                        msg += "in segmentation image."
+                        print(msg.format(verbose_prepend, id))
+                        msg = "{}Found area={:.2f}, x = ({}/{}/{}), y = "
+                        msg += "({}/{}/{}), flux = {:.2f}. Direct is {}."
+                        print(msg.format(verbose_prepend, area, xmin, x, 
+                                         xmax, ymin, y, ymax, segm_flux,
+                                         self.direct.sh))
                     return False
                 
                 ### Object won't disperse spectrum onto the grism image
-                if ((ymax < self.pad-5) | 
-                    (ymin > self.direct.sh[0]-self.pad+5) | 
-                    (ymin == 0) | (ymax == self.direct.sh[0]) |
-                    (xmin == 0) | (xmax == self.direct.sh[1])):
+                if ((ymax < 5) | (ymin > ref_img.shape[0]-5) | 
+                    (xmax < 5) | (xmin > ref_img.shape[1]-5)):
+                    if verbose:
+                        msg = "{}ID {:d} does not disperse light onto grism "
+                        msg += "image."
+                        print(msg.format(verbose_prepend, id))
                     return True
                     
                 if compute_size:
@@ -2744,6 +2877,8 @@ class GrismFLT(object):
                         size = int(np.ceil(np.max([x-xmin, xmax-x, 
                                                    y-ymin, ymax-y])))
                     except ValueError:
+                        msg = "{}ID {:d} size could not be computed"
+                        print(msg.format(verbose_prepend, id))
                         return False
                     
                     size += 4
@@ -2760,6 +2895,8 @@ class GrismFLT(object):
                     size = np.min([size, int(x)-2, int(y)-2])
                     
                     if (size < 4):
+                        msg = "{}ID {:d} object too close to edge."
+                        print(msg.format(verbose_prepend, id))
                         return True
                     
             ### Thumbnails
@@ -2777,15 +2914,16 @@ class GrismFLT(object):
             origin = [yc-size + self.direct.origin[0], 
                       xc-size + self.direct.origin[1]]
                                       
-            thumb = self.direct.data[ext][yc-size:yc+size, xc-size:xc+size]
-            seg_thumb = self.seg[yc-size:yc+size, xc-size:xc+size]
+            thumb = ref_img[yc-size:yc+size, xc-size:xc+size]
+            seg_thumb = seg_img[yc-size:yc+size, xc-size:xc+size]
             
             ## Test that the id is actually in the thumbnail
             test = disperse.compute_segmentation_limits(seg_thumb, id, thumb,
                                                         np.array(thumb.shape))
             if test[-2] == 0:
                 if verbose:
-                    print('ID {0:d} not found in segmentation image'.format(id))
+                    msg = "{}ID {:d} not found in segment thumbnail."
+                    print(msg.format(verbose_prepend, id))
                 return False
             
             # # Get precomputed dispersers
@@ -2814,11 +2952,22 @@ class GrismFLT(object):
             for b in beam_names:
                 ### Only compute order if bright enough
                 if mag > self.conf.conf['MMAG_EXTRACT_{0}'.format(b)]:
+                    msg = "{}ID {}: Source not bright enough for beam {}"
+                    print(msg.format(verbose_prepend, id, b))
                     continue
                 
                 try:
-                    beam = GrismDisperser(id=id, direct=thumb, segmentation=seg_thumb, xcenter=xcenter, ycenter=ycenter, origin=origin, pad=self.pad, grow=self.grism.grow, beam=b, conf=self.conf, fwcpos=self.grism.fwcpos, MW_EBV=self.grism.MW_EBV)                            
+                    beam = GrismDisperser(id=id, direct=thumb, 
+                                          segmentation=seg_thumb, 
+                                          xcenter=xcenter, ycenter=ycenter, 
+                                          origin=origin, pad=self.pad, 
+                                          grow=self.grism.grow, beam=b, 
+                                          conf=self.conf, 
+                                          fwcpos=self.grism.fwcpos, 
+                                          MW_EBV=self.grism.MW_EBV)
                 except:
+                    msg = "{}ID {}: Could not create beam {}."
+                    print(msg.format(verbose_prepend, id, b))
                     continue
                 
                 # Set PSF model if necessary
@@ -2831,7 +2980,10 @@ class GrismFLT(object):
                     else:
                         psf_filter = self.direct.ref_filter
                     
-                    beam.x_init_epsf(flat_sensitivity=False, psf_params=psf_params, psf_filter=psf_filter, yoff=0.)
+                    beam.x_init_epsf(flat_sensitivity=False, 
+                                     psf_params=psf_params, 
+                                     psf_filter=psf_filter, 
+                                     yoff=0.)
                     
                 beams[b] = beam
         
@@ -2914,7 +3066,7 @@ class GrismFLT(object):
             return beams, output
     
     def compute_full_model(self, ids=None, mags=None, mag_limit=22,
-                           store=True, verbose=False):
+                           store=True, verbose=False, verbose_prepend=''):
         """Compute flat-spectrum model for multiple objects.
         
         Parameters
@@ -2941,7 +3093,7 @@ class GrismFLT(object):
         ### segmentation regions.
         if mags is None:                                
             if verbose:
-                print('Compute IDs/mags')
+                print("{}Compute IDs/mags".format(verbose_prepend))
             
             mags = np.zeros(len(ids))
             for i, id in enumerate(ids):
@@ -2966,7 +3118,7 @@ class GrismFLT(object):
         ### Now compute the full model
         for id_i, mag_i in zip(ids, mags):
             if verbose:
-                print(utils.NO_NEWLINE + 'compute model id={0:d}'.format(id_i))
+                print(utils.NO_NEWLINE + verbose_prepend + 'compute model id={0:d}'.format(id_i))
                 
             self.compute_model_orders(id=id_i, compute_size=True, mag=mag_i, 
                                       in_place=True, store=store)
@@ -2999,7 +3151,8 @@ class GrismFLT(object):
         self.grism.data['SCI'][resid_mask] = 0
         
     def blot_catalog(self, input_catalog, columns=['id','ra','dec'], 
-                     sextractor=False, ds9=None):
+                     sextractor=False, ds9=None, verbose=False,
+                     verbose_prepend=''):
         """Compute detector-frame coordinates of sky positions in a catalog.
         
         Parameters
@@ -3076,7 +3229,8 @@ class GrismFLT(object):
     
     def photutils_detection(self, use_seg=False, data_ext='SCI',
                             detect_thresh=2., grow_seg=5, gauss_fwhm=2.,
-                            verbose=True, save_detection=False, ZP=None):
+                            verbose=True, save_detection=False, ZP=None,
+                            verbose_prepend=''):
         """Use photutils to detect objects and make segmentation map
         
         Parameters
@@ -3150,7 +3304,8 @@ class GrismFLT(object):
                              save_detection=save_detection, 
                              root=self.direct_file.split('.fits')[0],
                              background=None, gain=None, AB_zeropoint=ZP,
-                             overwrite=True, verbose=verbose)
+                             overwrite=True, verbose=verbose,
+                             verbose_prepend=verbose_prepend)
         
         self.catalog = cat
         self.catalog_file = '<photutils>'
@@ -3189,7 +3344,8 @@ class GrismFLT(object):
         self.catalog = Table.read(seg_cat, format=catalog_format)
         self.catalog_file = seg_cat
         
-    def save_model(self, overwrite=True, verbose=True):
+    def save_model(self, overwrite=True, unpad=True, verbose=True, 
+                   verbose_prepend=''):
         """Save model properties to FITS file
         """
         try:
@@ -3198,13 +3354,20 @@ class GrismFLT(object):
             # Python 3
             import pickle
             
-        root = self.grism_file.split('_flt.fits')[0].split('_rate.fits')[0]
+        root = Path(self.grism_file).stem
+        if root[-4:] == "_flt":
+            root = root[:-4]
+        elif root[-5:] == "_rate":
+            root = root[:-5]
         
         h = pyfits.Header()
         h['GFILE'] = (self.grism_file, 'Grism exposure name')
         h['GFILTER'] = (self.grism.filter, 'Grism spectral element')
         h['INSTRUME'] = (self.grism.instrument, 'Instrument of grism file')
-        h['PAD'] = (self.pad, 'Image padding used')
+        if unpad:
+            h['PAD'] = (0, 'Image padding used')
+        else:
+            h['PAD'] = (self.pad, 'Image padding used')
         h['DFILE'] = (self.direct_file, 'Direct exposure name')
         h['DFILTER'] = (self.direct.filter, 'Grism spectral element')
         h['REF_FILE'] = (self.ref_file, 'Reference image')
@@ -3213,16 +3376,23 @@ class GrismFLT(object):
         h['DISP_PA'] = (self.dispersion_PA, 'Dispersion position angle')
         
         h0 = pyfits.PrimaryHDU(header=h)
-        model = pyfits.ImageHDU(data=self.model, header=self.grism.header, 
-                                name='MODEL')
+        if unpad:
+            grism = deepcopy(self.grism)
+            grism.remove_padding()
+            hdr = grism.header
+            data = self.model[self.pad:-self.pad, self.pad:-self.pad]
+        else:
+            hdr = self.grism.header
+            data = self.model
+        model = pyfits.ImageHDU(data=data, header=hdr, name='MODEL')
                                 
-        seg = pyfits.ImageHDU(data=self.seg, header=self.grism.header,
+        seg = pyfits.ImageHDU(data=self.seg, header=self.grism.header, 
                               name='SEG')
 
         hdu = pyfits.HDUList([h0, model, seg])
         
         if 'REF' in self.direct.data:
-            ref_header = self.grism.header.copy()
+            ref_header = hdr.copy()
             ref_header['FILTER'] = self.direct.ref_filter
             ref_header['PARENT'] = self.ref_file
             ref_header['PHOTFLAM'] = self.direct.ref_photflam
@@ -3241,9 +3411,10 @@ class GrismFLT(object):
         fp.close()
         
         if verbose:
-            print('Saved {0}_model.fits and {0}_model.pkl'.format(root))
+            msg = '{0}Saved {1}_model.fits and {1}_model.pkl'
+            print(msg.format(verbose_prepend, root))
     
-    def save_full_pickle(self, verbose=True):
+    def save_full_pickle(self, verbose=True, verbose_prepend=''):
         """Save entire `GrismFLT` object to a pickle
         """
         try:
@@ -3284,9 +3455,9 @@ class GrismFLT(object):
         pickle.dump(self, fp)
         fp.close()
         
-        self.save_wcs(overwrite=True, verbose=False)
+        self.save_wcs(overwrite=True, verbose=verbose)
         
-    def save_wcs(self, overwrite=True, verbose=True):
+    def save_wcs(self, overwrite=True, verbose=True, verbose_prepend=''):
         """TBD
         """
         if self.direct.parent_file == self.grism.parent_file:
@@ -3311,7 +3482,7 @@ class GrismFLT(object):
                 hwcs.writeto(wcsfile, overwrite=overwrite)
         
             if verbose:
-                print(wcsfile)
+                print('{}{}'.format(verbose_prepend, wcsfile))
             
     def load_from_fits(self, save_file):
         """Load saved data from a FITS file
@@ -3351,7 +3522,7 @@ class GrismFLT(object):
                 
         return True
     
-    def transform_NIRISS(self, verbose=True):
+    def transform_NIRISS(self, verbose=True, verbose_prepend=''):
         """
         Rotate data & wcs so that spectra are increasing to +x
         """
@@ -3384,7 +3555,8 @@ class GrismFLT(object):
                 
         self.is_rotated = not self.is_rotated
         if verbose:
-            print('Transform NIRISS: flip={0}'.format(self.is_rotated))
+            msg = "{}Transform NIRISS: flip={}"
+            print(msg.format(verbose_prepend, self.is_rotated))
         
         ### Compute new CRPIX coordinates
         center = np.array(self.grism.sh)/2.+0.5
@@ -3431,7 +3603,9 @@ class GrismFLT(object):
             self.catalog = self.blot_catalog(self.catalog, 
                           sextractor=('X_WORLD' in self.catalog.colnames))
     
-    def mask_mosaic_edges(self, sky_poly=None, verbose=True, force=False, err_scale=10, dq_mask=False, dq_value=1024, resid_sn=7):
+    def mask_mosaic_edges(self, sky_poly=None, verbose=True, 
+                          verbose_prepend='', force=False, err_scale=10, 
+                          dq_mask=False, dq_value=1024, resid_sn=7):
         """
         Mask edges of exposures that might not have modeled spectra
         """
@@ -3473,11 +3647,15 @@ class GrismFLT(object):
         if dq_mask:
             self.grism.data['DQ'] |= dq_value*mask
             if verbose:
-                print('# mask mosaic edges: {0} ({1}, {2} pix) DQ={3:.0f}'.format(self.grism.parent_file, self.grism.filter, xedge, dq_value))
+                msg = "{}# mask mosaic edges: {} ({}, {} pix) DQ={:.0f}"
+                print(msg.format(verbose_prepend, self.grism.parent_file, 
+                                 self.grism.filter, xedge, dq_value))
         else:
             self.grism.data['ERR'][mask] *= err_scale
             if verbose:
-                print('# mask mosaic edges: {0} ({1}, {2} pix) err_scale={3:.1f}'.format(self.grism.parent_file, self.grism.filter, xedge, err_scale))
+                msg = "{}# mask mosaic edges: {} ({}, {} pix) err_scale={:.1f}"
+                print(msg.format(verbose_prepend, self.grism.parent_file, 
+                                 self.grism.filter, xedge, err_scale))
             
         self.has_edge_mask = True
     

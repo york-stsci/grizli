@@ -102,7 +102,7 @@ The notebooks below are deprecated and haven't been tested against the master br
 - `multimission-simulation <https://github.com/gbrammer/grizli/blob/master/examples/multimission-simulation.ipynb>`__ **(5.11.16)**: 
   
   1. Demonstration of more advanced simulation techniques using deep image mosaics and external catalogs/segmentation images as reference.
-  2. Provide a comparison between dispersed spectra from WFC3/G141, *JWST*/NIRISS and *WFIRST*.
+  2. Provide a comparison between dispersed spectra from WFC3/G141, *JWST*/NIRISS and *Roman*/WFI.
 
 - `WFC3IR_Reduction <https://github.com/gbrammer/grizli/blob/master/examples/WFC3IR_Reduction.ipynb>`__ **(9.6.16)**: End-to-end processing of WFC3/IR data.
 

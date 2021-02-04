@@ -121,6 +121,11 @@ def niriss_header(ra=53.1592277508136, dec=-27.782056346146, pa_aper=128.589,
     h['PHOTFLAM'] = 1.
     h['PHOTPLAM'] = 1.
     
+    # V2/V3 ref. Assumes NIS_CEN aperture
+    # Values per https://jwst-docs.stsci.edu/jwst-observatory-hardware/jwst-field-of-view
+    h['V2_REF'] = -290.10
+    h['V3_REF'] = -697.50
+    
     if grism == 'GR150R':
         h['GRISM'] = 'GR150R', 'Spectral trace along X'
     else:
@@ -271,8 +276,8 @@ def wfc3ir_header(ra=53.1592277508136, dec=-27.782056346146, pa_aper=128.589,
     
     return h, wcs
 
-def wfirst_header(ra=53.1592277508136, dec=-27.782056346146, pa_aper=128.589, naxis=(4096,4096)):
-    """Make WFIRST WFI header
+def wfi_header(ra=0., dec=0., pa_aper=0., naxis=(4096,4096)):
+    """Make Roman WFI header
     
     Parameters
     ----------
@@ -298,7 +303,7 @@ def wfirst_header(ra=53.1592277508136, dec=-27.782056346146, pa_aper=128.589, na
     
     Comments
     --------
-    WFIRST GRS Grism
+    Roman GRS Grism
     
     Current aXe config file has no field dependence, so field size can be
     anything you want in `naxis`.
@@ -315,6 +320,7 @@ def wfirst_header(ra=53.1592277508136, dec=-27.782056346146, pa_aper=128.589, na
     h['CRVAL2'] = dec
     
     h['WCSAXES'] = 2
+    h['NAXIS'] = 2
     h['CTYPE1'] = 'RA---TAN'
     h['CTYPE2'] = 'DEC--TAN'
     
@@ -326,8 +332,8 @@ def wfirst_header(ra=53.1592277508136, dec=-27.782056346146, pa_aper=128.589, na
             h['CD%d_%d' %(i+1, j+1)] = cd_rot[i,j]
     
     h['BACKGR'] = 0.17+0.49, 'Total, e/s SDT Report A-1'
-    h['FILTER'] = 'GRS', 'WFIRST grism'
-    h['INSTRUME'] = 'WFIRST'
+    h['FILTER'] = 'GRS', 'Roman grism'
+    h['INSTRUME'] = 'WFI'
     h['READN'] = 17, 'SDT report Table 3-3' # e/pix/per
     h['PHOTFLAM'] = 1.
     h['PHOTPLAM'] = 1.
@@ -338,7 +344,7 @@ def wfirst_header(ra=53.1592277508136, dec=-27.782056346146, pa_aper=128.589, na
     return h, wcs
     
 def make_fake_image(header, output='direct.fits', background=None, exptime=1.e4, nexp=10):
-    """Use the header from NIRISS, WFC3/IR or WFIRST and make an 'FLT' image that `grizli` can read as a reference.
+    """Use the header from NIRISS, WFC3/IR or Roman/WFI and make an 'FLT' image that `grizli` can read as a reference.
     
     Parameters
     ----------
