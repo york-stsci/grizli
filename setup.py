@@ -22,7 +22,7 @@ except ImportError:
 
 if not os.path.exists('grizli/utils_c/interp.pyx'):
     USE_CYTHON = False
-    
+
 if USE_CYTHON:
     cext = '.pyx'
 else:
@@ -35,7 +35,7 @@ if os.name == 'nt':
     extensions = [
         Extension("grizli.utils_c.interp", ["grizli/utils_c/interp"+cext],
             include_dirs = [numpy.get_include()]),
-        
+
         Extension("grizli.utils_c.disperse", ["grizli/utils_c/disperse"+cext],
             include_dirs = [numpy.get_include()]),
     ]
@@ -45,13 +45,13 @@ else:
         Extension("grizli.utils_c.interp", ["grizli/utils_c/interp"+cext],
             include_dirs = [numpy.get_include()],
             libraries=["m"]),
-        
+
         Extension("grizli.utils_c.disperse", ["grizli/utils_c/disperse"+cext],
             include_dirs = [numpy.get_include()],
             libraries=["m"]),
-    ] 
+    ]
 
-if 0:      
+if 0:
     #update version
     args = 'git describe --tags'
     p = subprocess.Popen(args.split(), stdout=subprocess.PIPE)
@@ -76,7 +76,7 @@ else:
     from astropy_helpers.version_helpers import generate_version_py
     builtins._ASTROPY_PACKAGE_NAME_ = read_configuration('setup.cfg')['metadata']['name']
     version = generate_version_py()
-    
+
 if USE_CYTHON:
     extensions = cythonize(extensions)
 
@@ -105,6 +105,8 @@ setup(
         'Topic :: Scientific/Engineering :: Astronomy',
     ],
     ext_modules = extensions,
-    package_data={'grizli': ['data/*', 'data/*fits.gz', 'data/templates/*', 'data/templates/stars/*', 'data/templates/fsps/*']},
+    package_data={'grizli': ['data/*', 'data/*fits.gz', 'data/templates/*',
+                             'data/templates/stars/*', 'data/templates/fsps/*',
+                             'data/roman/*']},
     # scripts=['grizli/scripts/flt_info.sh'],
 )
