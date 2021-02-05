@@ -1,0 +1,44 @@
+
+INSTRUMENT Roman
+CAMERA IR
+TELAREA 43743.6 ; [cm^2] for Roman
+SCIENCE_EXT SCI ; Science extension
+DQ_EXT DQ
+ERRORS_EXT ERR
+FFNAME Roman.flat.512.fits
+DQMASK 11775 ; 4096 and 512 taken out
+RDNOISE 6.0 ; 6 e- per 1000 s
+EXPTIME EXPTIME
+POBJSIZE 1.0
+SMFACTOR 1.0
+DRZRESOLA 10.679 ; [A/pixel] Dispersion
+DRZSCALE 0.11 ; [arcsec/pixel] Pixel scale
+DRZLAMB0 16500.0 ; [A] Reference wavelength
+DRZXINI 15. ; Reference pixel
+DRZROOT aXeWFIRST
+
+#-----------
+#
+# Beam A:
+#
+#-----------
+BEAMA -350 350 ; Extraction range wrt (XOFF_A,YOFF_A)
+MMAG_EXTRACT_A 30
+MMAG_MARK_A 32.5
+XOFF_A 0.0 ; Reference pixel of this beam
+YOFF_A 0.0 ; wrt center of direct image.
+SENSITIVITY_A Roman.1st.sens.v0.fits
+
+#
+# Trace description for Beam A:
+#
+DYDX_ORDER_A 1 ; Assume trace is constant in y
+DYDX_A_0            0
+DYDX_A_1   -0.0004237
+
+#
+# Dispersion solution for Beam A:
+#
+DISP_ORDER_A 1 ; Assume linear solution
+DLDP_A_0        16500 ; [A] Y-intercept = wavelength of reference pixel
+DLDP_A_1       10.679 ; [A/pixel] Slope = Dispersion
