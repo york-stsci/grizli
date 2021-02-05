@@ -5069,9 +5069,9 @@ def fetch_config_files(ACS=False, get_sky=True, get_stars=True, get_epsf=True, g
             os.system('tar xzvf {0}'.format(file))
 
     if get_roman:
-        roman_conf_dir = resources.path("grizli.data", "roman")
-        roman_conf_files = glob.glob(os.path.join(roman_conf_dir, "*"))
-        for file in roman_conf_files:
+        print("Getting Roman Conf Files")
+        print(resources.contents("grizli.data.roman"))
+        for file in resources.contents("grizli.data.roman"):
             shutil.copy(file, os.path.basename(file))
 
     if get_epsf:
