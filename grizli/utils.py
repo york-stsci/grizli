@@ -5070,9 +5070,10 @@ def fetch_config_files(ACS=False, get_sky=True, get_stars=True, get_epsf=True, g
 
     if get_roman:
         print("Getting Roman Conf Files")
-        print(resources.contents("grizli.data.roman"))
+        resource_dir = resources.files("grizli.data.roman")
         for file in resources.contents("grizli.data.roman"):
-            shutil.copy(file, os.path.basename(file))
+            if file != "__pycache__" and file != "__init__.py":
+                shutil.copy(os.path.join(resource_dir, file), file)
 
     if get_epsf:
         # ePSF files for fitting point sources
